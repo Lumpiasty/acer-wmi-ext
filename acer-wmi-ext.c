@@ -212,6 +212,10 @@ static struct quirk_entry quirk_acer_sfg174_73 = {
 	.system_control_mode = 1, // Enable system control mode for this model
 	.usb_charge_mode = 1, // Enable USB charge mode for this model
 };
+static struct quirk_entry quirk_acer_sfg14_63 = {
+	.system_control_mode = 1, // Enable system control mode for this model
+	.usb_charge_mode = 1, // Enable USB charge mode for this model
+};
 
  /*
   * This quirk table is only for Acer/Gateway/Packard Bell family
@@ -233,6 +237,15 @@ static const struct dmi_system_id acer_quirks[] __initconst = {
 			DMI_MATCH(DMI_PRODUCT_NAME, "Swift SFG14-73"),
 		},
 		.driver_data = &quirk_acer_sfg174_73,
+	},
+	{
+		.callback = dmi_matched,
+		.ident = "Acer Swift SFG14-63",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "Acer"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "Swift SFG14-63"),
+		},
+		.driver_data = &quirk_acer_sfg14_63,
 	},
 };
 

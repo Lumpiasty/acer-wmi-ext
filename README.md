@@ -11,10 +11,10 @@ battery's capacity and a battery calibration mode which puts your
 battery through a controlled charge-discharge cycle to provide more
 accurate battery capacity estimates.
 
-On the Acer Swift Go 14 (SFG14-73), it can also set fan profiles
-(Balanced, Quiet, Performance) based on the currently-set platform power
-profile (used by power-profiles-daemon). Fan profiles are controlled
-through the Acer ApgeAction WMI interface (GUID
+On supported Acer Swift Go 14 models (SFG14-73, SFG14-63) it can also set
+fan profiles (Balanced, Quiet, Performance) based on the currently-set
+platform power profile (used by power-profiles-daemon). Fan profiles are
+controlled through the Acer ApgeAction WMI interface (GUID
 `61EF69EA-865C-4BC3-A502-A0DEBA0CB531`, method `WMAA`, function `0x07`)
 rather than by poking EC registers directly. The original EC offsets
 provided by @YFHD-osu in [their repository](https://github.com/YFHD-osu/sfg14-fanmode)
