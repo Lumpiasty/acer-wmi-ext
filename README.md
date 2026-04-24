@@ -29,6 +29,23 @@ cd acer-wmi-ext
 make
 ```
 
+### NixOS
+
+A `shell.nix` is provided that follows the
+[Developing kernel modules](https://nixos.org/manual/nixpkgs/stable/#sec-linux-kernel-developing-modules)
+recipe from the Nixpkgs manual. Enter the shell and build:
+```
+nix-shell
+make
+```
+The shell sets `KDIR` to the build tree of the nixpkgs channel's
+`linuxPackages.kernel`. To target a different kernel:
+```
+nix-shell --arg kernelPackages 'with import <nixpkgs> {}; linuxPackages_latest'
+```
+Note that `insmod` requires the built module's kernel version to match the
+booted one (`uname -r`).
+
 ## Using
 
 Loading the module without any parameters does not
