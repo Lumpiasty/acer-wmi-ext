@@ -14,5 +14,11 @@
       packages."${system}".default = pkgs.callPackage ./default.nix {
         kernel = pkgs.linux;
       };
+
+      overlays.default = self: super: {
+        linuxPackages = super.linuxPackages.extend (lpself: lpsuper: {
+          acer-wmi-ext = lpsuper.callPackage ./default.nix { };
+        });
+      };
     };
 }
