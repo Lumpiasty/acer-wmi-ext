@@ -69,12 +69,37 @@ struct set_battery_health_control_output {
 
 enum battery_mode { HEALTH_MODE = 1, CALIBRATION_MODE = 2 };
 
-#define ACER_SYSTEM_CONTROL_MODE_EC_OFFSET 0x45
+/*
+ * System control mode (fan profile) is controlled via the WMI ApgeAction
+ * interface (WMI_GUID2), function code 0x07. This replaces the earlier
+ * EC-direct implementation which required a per-model EC offset and
+ * per-model encoding of the "balanced" value.
+ *
+ * Evidence for this path comes from reverse engineering SFG14-63 firmware
+ * (AMD). The WMAA DSDT method dispatches function 0x07 to AMD ALIB to
+ * program the SMU. It has been verified to correctly change fan behaviour
+ * on SFG14-63. Whether the same code path exists on SFG14-73 (Intel) and
+ * other Acer models needs to be confirmed by the respective hardware
+ * owners - the old EC-direct implementation is no longer present, so a
+ * regression on other models would manifest as the sysfs attribute
+ * accepting writes without the fan actually responding.
+ *
+ * Input buffer (SET, method_id = 1):
+ *   byte 0 = 0x07 (function code: system control mode)
+ *   byte 2 = mode (see SYSTEM_CONTROL_*)
+ * Return for SET is zero on success.
+ *
+ * Input buffer (GET, method_id = 2):
+ *   byte 0 = 0x07
+ * Return packs the current mode into byte 1.
+ */
 enum system_control_mode {
-	   	SYSTEM_CONTROL_BALANCED = 1,
-		SYSTEM_CONTROL_SILENT = 2,
-		SYSTEM_CONTROL_PERFORMANCE = 3,
+	SYSTEM_CONTROL_BALANCED	   = 0,
+	SYSTEM_CONTROL_SILENT	   = 2,
+	SYSTEM_CONTROL_PERFORMANCE = 3,
 };
+
+#define ACER_WMI_SCM_FUNCTION 0x07
 
 struct battery_info {
 	s8 health_mode;
@@ -96,7 +121,7 @@ MODULE_PARM_DESC(
 module_param(enable_system_control_mode, short, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 MODULE_PARM_DESC(
 	enable_system_control_mode,
-	"Set system fan control mode (0: balanced, 1: silent, 2: performance) during "
+	"Set system fan control mode (0: balanced, 2: silent, 3: performance) during "
 	"module initialization (default value < 0: do not modify existing settings.)");
 
 
@@ -133,6 +158,43 @@ acer_wmi_apgeaction_exec_u64(u32 method_id, u64 in, u64 *out) {
 	kfree(result.pointer);
 
 	return status;
+}
+
+static bool is_valid_system_control_mode(int val)
+{
+	return val == SYSTEM_CONTROL_BALANCED ||
+	       val == SYSTEM_CONTROL_SILENT ||
+	       val == SYSTEM_CONTROL_PERFORMANCE;
+}
+
+/*
+ * Read the current system control mode via WMAA (WMI_GUID2) function 0x07,
+ * GET. Firmware returns the current mode in byte 1 of the response buffer.
+ */
+static acpi_status acer_wmi_get_system_control_mode(u8 *mode)
+{
+	acpi_status status;
+	u64 result = 0;
+
+	status = acer_wmi_apgeaction_exec_u64(ACER_WMID_GET_FUNCTION,
+					      ACER_WMI_SCM_FUNCTION, &result);
+	if (ACPI_FAILURE(status))
+		return status;
+
+	*mode = (result >> 8) & 0xFF;
+	return AE_OK;
+}
+
+/*
+ * Set the system control mode via WMAA (WMI_GUID2) function 0x07, SET.
+ * Input buffer byte 0 = function code, byte 2 = mode.
+ */
+static acpi_status acer_wmi_set_system_control_mode(u8 mode)
+{
+	u64 in = ACER_WMI_SCM_FUNCTION | ((u64)mode << 16);
+	u64 result = 0;
+
+	return acer_wmi_apgeaction_exec_u64(ACER_WMID_SET_FUNCTION, in, &result);
 }
 
 struct quirk_entry {
@@ -403,6 +465,7 @@ static ssize_t system_control_mode_show(struct device_driver *driver, char *buf)
 static ssize_t system_control_mode_store(struct device_driver *driver,
 					 const char *buf, size_t count)
 {
+	acpi_status status;
 	int param_val;
 	int err;
 
@@ -413,18 +476,18 @@ static ssize_t system_control_mode_store(struct device_driver *driver,
 	if (err)
 		return err;
 
-	if (param_val < SYSTEM_CONTROL_BALANCED ||
-	    param_val > SYSTEM_CONTROL_PERFORMANCE) {
+	if (!is_valid_system_control_mode(param_val)) {
 		pr_err("Invalid system control mode value: %d\n", param_val);
 		return -EINVAL;
 	}
 
-	pr_err("Setting system control mode to %d\n", param_val);
+	pr_info("Setting system control mode to %d\n", param_val);
 
-	err = ec_write(ACER_SYSTEM_CONTROL_MODE_EC_OFFSET, param_val);
-	if (err < 0) {
-		pr_err("Failed to write system control mode to EC: %d\n", err);
-		return err;
+	status = acer_wmi_set_system_control_mode((u8)param_val);
+	if (ACPI_FAILURE(status)) {
+		pr_err("Failed to set system control mode via WMI: %s\n",
+		       acpi_format_exception(status));
+		return -EIO;
 	}
 
 	control_mode = param_val;
@@ -628,23 +691,23 @@ static int system_control_mode_inited = 0;
 static int
 acer_system_control_mode_init(void)
 {
+	acpi_status status;
 	u8 tp;
-	int err;
 
 	system_control_mode_inited = 1;
 
-	err = ec_read(ACER_SYSTEM_CONTROL_MODE_EC_OFFSET, &tp);
-	if (err < 0) {
-		pr_err("Failed to read system control mode from EC: %d\n", err);
-		return err;
+	status = acer_wmi_get_system_control_mode(&tp);
+	if (ACPI_FAILURE(status)) {
+		pr_err("Failed to read system control mode via WMI: %s\n",
+		       acpi_format_exception(status));
+		return -EIO;
 	}
 
-	pr_err("System control mode: %d\n", tp);
+	pr_info("System control mode: %d\n", tp);
 	control_mode = tp;
 
 	if (enable_system_control_mode >= 0) {
-		if (enable_system_control_mode < SYSTEM_CONTROL_BALANCED ||
-		    enable_system_control_mode > SYSTEM_CONTROL_PERFORMANCE) {
+		if (!is_valid_system_control_mode(enable_system_control_mode)) {
 			pr_err("Invalid system control mode value: %d\n",
 			       enable_system_control_mode);
 			return -EINVAL;
@@ -653,12 +716,12 @@ acer_system_control_mode_init(void)
 		pr_info("Setting system control mode to %d\n",
 			enable_system_control_mode);
 
-		err = ec_write(ACER_SYSTEM_CONTROL_MODE_EC_OFFSET,
-			       enable_system_control_mode);
-		if (err < 0) {
-			pr_err("Failed to write system control mode to EC: %d\n",
-			       err);
-			return err;
+		status = acer_wmi_set_system_control_mode(
+					(u8)enable_system_control_mode);
+		if (ACPI_FAILURE(status)) {
+			pr_err("Failed to set system control mode via WMI: %s\n",
+			       acpi_format_exception(status));
+			return -EIO;
 		}
 
 		control_mode = enable_system_control_mode;
@@ -724,13 +787,14 @@ static int
 acer_platform_profile_set(struct device *dev,
 					enum platform_profile_option profile)
 {
-	int err;
+	acpi_status status;
+	int new_mode;
+
 	if (!quirks->system_control_mode) {
 		pr_info("System control mode quirk not enabled, skipping platform profile set\n");
 		return -EOPNOTSUPP;
 	}
 
-	int new_mode;
 	switch (profile) {
 	case PLATFORM_PROFILE_BALANCED:
 		new_mode = SYSTEM_CONTROL_BALANCED;
@@ -753,10 +817,11 @@ acer_platform_profile_set(struct device *dev,
 	}
 
 	pr_info("Setting platform profile to %d\n", new_mode);
-	err = ec_write(ACER_SYSTEM_CONTROL_MODE_EC_OFFSET, new_mode);
-	if (err < 0) {
-		pr_err("Failed to set platform profile: %d\n", err);
-		return err;
+	status = acer_wmi_set_system_control_mode((u8)new_mode);
+	if (ACPI_FAILURE(status)) {
+		pr_err("Failed to set platform profile via WMI: %s\n",
+		       acpi_format_exception(status));
+		return -EIO;
 	}
 
 	control_mode = new_mode;

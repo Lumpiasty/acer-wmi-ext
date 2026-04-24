@@ -12,10 +12,13 @@ battery through a controlled charge-discharge cycle to provide more
 accurate battery capacity estimates.
 
 On the Acer Swift Go 14 (SFG14-73), it can also set fan profiles
-(Balanced, Quiet, Performance) based on the currently-set platform power profile
-by the system (used by power-profiles-daemon). The EC offsets were provided
-by @YFHD-osu in their [repository](https://github.com/YFHD-osu/sfg14-fanmode)
-and has been verified to be functional on my SFG14-73 as well (Fedora 42). 
+(Balanced, Quiet, Performance) based on the currently-set platform power
+profile (used by power-profiles-daemon). Fan profiles are controlled
+through the Acer ApgeAction WMI interface (GUID
+`61EF69EA-865C-4BC3-A502-A0DEBA0CB531`, method `WMAA`, function `0x07`)
+rather than by poking EC registers directly. The original EC offsets
+provided by @YFHD-osu in [their repository](https://github.com/YFHD-osu/sfg14-fanmode)
+were used by earlier versions of this driver.
 
 ## Building
 
@@ -77,29 +80,33 @@ echo 0 | sudo tee /sys/bus/wmi/drivers/acer-wmi-ext/calibration_mode
 
 The fan profiles can then be set as follows:
 ```
-echo 1 | sudo tee /sys/bus/wmi/drivers/acer-wmi-ext/system_control_mode
+echo 0 | sudo tee /sys/bus/wmi/drivers/acer-wmi-ext/system_control_mode
 ```
 
-The following profiles are as follows:
+The profile values are:
 
-- `1`: Balanced
+- `0`: Balanced
 - `2`: Quiet
 - `3`: Performance
 
-They are also hooked into platform power profiles and thus can be controlled
-using power-profiles-daemon and the desktop environment.
+These values come from the WMAA ApgeAction WMI method (function `0x07`)
+and are defined by the Acer firmware, not the driver. They are hooked
+into platform power profiles and can therefore also be controlled through
+power-profiles-daemon and the desktop environment.
 
-Alternatively, you can set it at module initialization
-time:
+Alternatively, you can set it at module initialization time:
 ```
-sudo insmod acer-wmi-ext.ko enable_system_control_mode=1
+sudo insmod acer-wmi-ext.ko enable_system_control_mode=0
 ```
 
 ### Related work
 
-The EC setting for the SFG14-73's fan profiles were from @YFHD-osu and can be found in
-their [repository](https://github.com/YFHD-osu/sfg14-fanmode). This is only tested
-functional on the said device and thus is disabled for others.
+Earlier versions of this driver set fan profiles by writing to an EC
+register at a model-specific offset. The EC offsets for the SFG14-73 were
+provided by @YFHD-osu in [their repository](https://github.com/YFHD-osu/sfg14-fanmode).
+The driver has since been refactored to use the ApgeAction WMI method
+directly, which is the same interface AcerSense uses on Windows and
+removes the need for per-model EC offset quirks.
 
 There exists [another driver](https://github.com/maxco2/acer-battery-wmi) with
 similar functionality of which I have not been aware when starting the work
