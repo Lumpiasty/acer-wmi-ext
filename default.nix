@@ -6,7 +6,7 @@ stdenv.mkDerivation {
 
   src = ./.;
 
-  nativeBuildInputs = [ kernel.moduleBuildDependencies ];
+  nativeBuildInputs = kernel.moduleBuildDependencies;
 
   # The Makefile expects KDIR to point to the kernel build directory.
   makeFlags = [ "KDIR=${kernel.dev}/lib/modules/${kernel.modDirVersion}/build" ];
