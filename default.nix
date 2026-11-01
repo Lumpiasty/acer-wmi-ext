@@ -15,8 +15,9 @@ stdenv.mkDerivation {
   ];
 
   # The Makefile expects KDIR to point to the kernel build directory.
-  makeFlags = [ "KDIR=${kernel.dev}/lib/modules/${kernel.modDirVersion}/build" ]
-    ++ lib.optional isClang "LLVM=1";
+  makeFlags = kernel.commonMakeFlags ++ [
+    "KDIR=${kernel.dev}/lib/modules/${kernel.modDirVersion}/build"
+    ] ++ lib.optional isClang "LLVM=1";
 
   installFlags = [ "INSTALL_MOD_PATH=${placeholder "out"}" ];
 
